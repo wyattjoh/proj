@@ -50,8 +50,8 @@ pl
 ### Advanced
 
 These are all aliases to the `proj` command, run `proj` for more advanced
-features. All the project data is additionally stored in `$HOME/.projects` as a
-JSON file.
+features. All the project data is additionally stored in `$HOME/.projects.db` as
+a Bolt DB.
 
 ## Future
 

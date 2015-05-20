@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -9,75 +8,58 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/boltdb/bolt"
 	"github.com/codegangsta/cli"
 )
 
-type savedFolder struct {
-	Name      string `json:"name"`
-	Directory string `json:"dir"`
-}
+const saveLocationName = ".projects.db"
+const bucketName = "projects"
 
-const saveLocationName = ".projects"
+func getBucket(tx *bolt.Tx) *bolt.Bucket {
+	bucket := tx.Bucket([]byte(bucketName))
 
-func loadProjects() ([]savedFolder, error) {
-	var sf = make([]savedFolder, 0)
+	if bucket == nil {
+		if tx.Writable() {
+			bucket, err := tx.CreateBucketIfNotExists([]byte(bucketName))
+			if err != nil {
+				return nil
+			}
 
-	savePath, err := saveLocation()
-	if err != nil {
-		return nil, err
-	}
-
-	f, err := os.Open(savePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return sf, nil
+			return bucket
 		}
 
-		return nil, err
-	}
-	defer f.Close()
-
-	parser := json.NewDecoder(f)
-
-	err = parser.Decode(&sf)
-	if err != nil {
-		return nil, err
+		return nil
 	}
 
-	return sf, nil
+	return bucket
 }
 
-func saveLocation() (string, error) {
+func saveLocation(thePath string) (string, error) {
 	u, err := user.Current()
 	if err != nil {
 		return "", err
 	}
 
-	location := filepath.Join(u.HomeDir, saveLocationName)
+	location := filepath.Join(u.HomeDir, thePath)
 
 	return location, nil
 }
 
-func saveProjects(projects []savedFolder) error {
-	savePath, err := saveLocation()
+func doWithDB(f func(db *bolt.DB) error) error {
+	// get db path
+	dbPath, err := saveLocation(saveLocationName)
 	if err != nil {
 		return err
 	}
 
-	f, err := os.Create(savePath)
+	// open the database.
+	db, err := bolt.Open(dbPath, 0666, nil)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer db.Close()
 
-	encoder := json.NewEncoder(f)
-
-	err = encoder.Encode(projects)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return f(db)
 }
 
 func addProject(c *cli.Context) {
@@ -91,62 +73,77 @@ func addProject(c *cli.Context) {
 		log.Fatal("name must be provided")
 	}
 
-	sf := savedFolder{
-		Name:      projectName,
-		Directory: cwd,
-	}
-
-	// Loads the projects
-	projects, err := loadProjects()
+	err = doWithDB(func(db *bolt.DB) error {
+		return db.Update(func(tx *bolt.Tx) error {
+			// Set the value "bar" for the key "foo".
+			getBucket(tx).Put([]byte(projectName), []byte(cwd))
+			return nil
+		})
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// Adds the project
-	for _, f := range projects {
-		if f.Name == sf.Name {
-			f.Directory = sf.Directory
-		}
-	}
-
-	projects = append(projects, sf)
-
-	// Saves the projects
-	saveProjects(projects)
 }
 
 func getProject(c *cli.Context) {
-	// Loads the projects
-	projects, err := loadProjects()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	projectName := strings.ToLower(c.Args().First())
 	if projectName == "" {
 		log.Fatal("name must be provided")
 	}
 
-	for _, proj := range projects {
-		if projectName == proj.Name {
-			fmt.Println(proj.Directory)
-			return
-		}
+	err := doWithDB(func(db *bolt.DB) error {
+		return db.View(func(tx *bolt.Tx) error {
+			directory := getBucket(tx).Get([]byte(projectName))
+
+			if directory == nil {
+				return fmt.Errorf("no project called %s found", projectName)
+			}
+
+			fmt.Println(string(directory))
+
+			return nil
+		})
+	})
+	if err != nil {
+		log.Fatal("Can't get project: ", err)
+	}
+}
+
+func deleteProject(c *cli.Context) {
+	projectName := strings.ToLower(c.Args().First())
+	if projectName == "" {
+		log.Fatal("name must be provided")
 	}
 
-	log.Fatalf("no project called %s found", projectName)
+	err := doWithDB(func(db *bolt.DB) error {
+		return db.Update(func(tx *bolt.Tx) error {
+			// Set the value "bar" for the key "foo".
+			return getBucket(tx).Delete([]byte(projectName))
+		})
+	})
+	if err != nil {
+		log.Fatal("Can't delete project: ", err)
+	}
 }
 
 func listProjects(c *cli.Context) {
-	// Loads the projects
-	projects, err := loadProjects()
+	fmt.Printf("Name       Directory\n\n")
+	err := doWithDB(func(db *bolt.DB) error {
+		return db.View(func(tx *bolt.Tx) error {
+			bucket := getBucket(tx)
+
+			if bucket == nil {
+				return nil
+			}
+
+			return bucket.ForEach(func(k, v []byte) error {
+				fmt.Printf("%-10s %s\n", string(k), string(v))
+				return nil
+			})
+		})
+	})
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	fmt.Printf("Name       Directory\n\n")
-	for _, proj := range projects {
-		fmt.Printf("%-10s %s\n", proj.Name, proj.Directory)
 	}
 }
 
@@ -160,6 +157,12 @@ func main() {
 			ShortName: "a",
 			Usage:     "add a project",
 			Action:    addProject,
+		},
+		{
+			Name:      "del",
+			ShortName: "d",
+			Usage:     "delete a project",
+			Action:    deleteProject,
 		},
 		{
 			Name:      "get",

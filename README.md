@@ -1,5 +1,9 @@
 # proj
 
+Ever in the situation where you're always jumping to the same folder over and
+over again? Well think no more, and drastically reduce your typing by the
+creating of "projects" that you can jump to with ease.
+
 ## Installation
 
 You must have `go` installed, then run:
@@ -45,4 +49,11 @@ pl
 
 ### Advanced
 
-These are all aliases to the `proj` command, run `proj` for more advanced features. All the project data is additionally stored in `$HOME/.projects` as a JSON file.
+These are all aliases to the `proj` command, run `proj` for more advanced
+features. All the project data is additionally stored in `$HOME/.projects` as a
+JSON file.
+
+## Future
+
+- Shell completions
+- Delete a project

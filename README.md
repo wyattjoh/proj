@@ -53,7 +53,30 @@ These are all aliases to the `proj` command, run `proj` for more advanced
 features. All the project data is additionally stored in `$HOME/.projects.db` as
 a Bolt DB.
 
+```
+NAME:
+   proj - store and retrieve project locations
+
+USAGE:
+   proj [global options] command [command options] [arguments...]
+
+VERSION:
+   0.0.0
+
+AUTHOR(S):
+
+COMMANDS:
+   add, a	add a project
+   del, d	delete a project
+   get, g	get a project's directory by name
+   list, l	lists all projects
+   help, h	Shows a list of commands or help for one command
+
+GLOBAL OPTIONS:
+   --help, -h		show help
+   --version, -v	print the version
+```
+
 ## Future
 
 - Shell completions
-- Delete a project

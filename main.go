@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -15,23 +16,25 @@ import (
 const saveLocationName = ".projects.db"
 const bucketName = "projects"
 
-func getBucket(tx *bolt.Tx) *bolt.Bucket {
+var errTxNotWritable = errors.New("tx not writable")
+
+func getBucket(tx *bolt.Tx) (*bolt.Bucket, error) {
 	bucket := tx.Bucket([]byte(bucketName))
 
 	if bucket == nil {
 		if tx.Writable() {
 			bucket, err := tx.CreateBucketIfNotExists([]byte(bucketName))
 			if err != nil {
-				return nil
+				return nil, err
 			}
 
-			return bucket
+			return bucket, nil
 		}
 
-		return nil
+		return nil, errTxNotWritable
 	}
 
-	return bucket
+	return bucket, nil
 }
 
 func saveLocation(thePath string) (string, error) {
@@ -52,12 +55,29 @@ func doWithDB(f func(db *bolt.DB) error) error {
 		return err
 	}
 
+	var setupRequired bool
+
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		setupRequired = true
+	}
+
 	// open the database.
 	db, err := bolt.Open(dbPath, 0666, nil)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
+
+	if setupRequired {
+
+		if err := db.Update(func(tx *bolt.Tx) error {
+			_, err := getBucket(tx)
+			return err
+		}); err != nil {
+			return err
+		}
+
+	}
 
 	return f(db)
 }
@@ -76,7 +96,12 @@ func addProject(c *cli.Context) {
 	err = doWithDB(func(db *bolt.DB) error {
 		return db.Update(func(tx *bolt.Tx) error {
 			// Set the value "bar" for the key "foo".
-			getBucket(tx).Put([]byte(projectName), []byte(cwd))
+			bucket, err := getBucket(tx)
+			if err != nil {
+				return err
+			}
+
+			bucket.Put([]byte(projectName), []byte(cwd))
 			return nil
 		})
 	})
@@ -93,7 +118,12 @@ func getProject(c *cli.Context) {
 
 	err := doWithDB(func(db *bolt.DB) error {
 		return db.View(func(tx *bolt.Tx) error {
-			directory := getBucket(tx).Get([]byte(projectName))
+			bucket, err := getBucket(tx)
+			if err != nil {
+				return err
+			}
+
+			directory := bucket.Get([]byte(projectName))
 
 			if directory == nil {
 				return fmt.Errorf("no project called %s found", projectName)
@@ -118,7 +148,12 @@ func deleteProject(c *cli.Context) {
 	err := doWithDB(func(db *bolt.DB) error {
 		return db.Update(func(tx *bolt.Tx) error {
 			// Set the value "bar" for the key "foo".
-			return getBucket(tx).Delete([]byte(projectName))
+			bucket, err := getBucket(tx)
+			if err != nil {
+				return err
+			}
+
+			return bucket.Delete([]byte(projectName))
 		})
 	})
 	if err != nil {
@@ -130,10 +165,9 @@ func listProjects(c *cli.Context) {
 	fmt.Printf("Name       Directory\n\n")
 	err := doWithDB(func(db *bolt.DB) error {
 		return db.View(func(tx *bolt.Tx) error {
-			bucket := getBucket(tx)
-
-			if bucket == nil {
-				return nil
+			bucket, err := getBucket(tx)
+			if err != nil {
+				return err
 			}
 
 			return bucket.ForEach(func(k, v []byte) error {
